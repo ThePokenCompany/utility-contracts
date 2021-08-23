@@ -26,6 +26,12 @@ contract PKNPremium is ERC20("PKNPremium", "xPKN") {
         PKN.transferFrom(msg.sender, address(this), _amount);
     }
 
+    function pknStacked(address user) public view returns(uint256) {
+        uint256 totalPKN = PKN.balanceOf(address(this));
+        uint256 totalShares = totalSupply();
+        return (balanceOf(user) * totalPKN) / totalShares;
+    }
+
     // Unlocks the staked PKN and burns xPKN
     function leave(uint256 _share) public {
         uint256 totalPKN = PKN.balanceOf(address(this));
