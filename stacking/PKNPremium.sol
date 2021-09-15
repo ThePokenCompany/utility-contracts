@@ -2,42 +2,67 @@
 pragma solidity ^0.8.3;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-// This contract handles staking PKN to get xPKN - and access to premium features
-contract PKNPremium is ERC20("PKNPremium", "xPKN") {
+// This contract handles staking PKN to get access to premium features
+contract PKNPremium {
+
+    uint256 constant LOCK_PERIOD = 365 days;
+
+    mapping(address => uint256) _pknStakedBy;
+    mapping(address => uint256) _unlockTimeOf;
+
     IERC20 public PKN;
+
+    event Deposit(address user, uint256 amount);
+    event Withdraw(address user, uint256 amount);
+    event Renew(address user, uint256 amount);
 
     constructor(IERC20 _PKN) {
         PKN = _PKN;
     }
 
-    // Locks PKN and mints xPKN
-    function enter(uint256 _amount) public {
-        uint256 totalPKN = PKN.balanceOf(address(this));
-        uint256 totalShares = totalSupply();
-        if (totalShares == 0 || totalPKN == 0) {
-            _mint(msg.sender, _amount);
-        } 
-        else {
-            uint256 what = (_amount * totalShares) / totalPKN;
-            _mint(msg.sender, what);
-        }
+    function pknStackedBy(address user) public view returns(uint256) {
+        return _pknStakedBy[user];
+    }
+
+    function unlockTimeOf(address user) public view returns(uint256) {
+        return _unlockTimeOf[user];
+    }
+
+    function isSubscriptionActive(address user) public view returns(bool) {
+        return block.timestamp < unlockTimeOf(user);
+    }
+
+    // Locks PKN for locking period
+    function deposit(uint256 _amount) public {
+        _unlockTimeOf[msg.sender] = _getUnlockTime(block.timestamp);
+        _pknStakedBy[msg.sender] += _amount;
         PKN.transferFrom(msg.sender, address(this), _amount);
+
+        emit Deposit(msg.sender, _amount);
     }
 
-    function pknStacked(address user) public view returns(uint256) {
-        uint256 totalPKN = PKN.balanceOf(address(this));
-        uint256 totalShares = totalSupply();
-        return (balanceOf(user) * totalPKN) / totalShares;
+    // Withdraw the unlocked PKN
+    function withdraw(uint256 _amount) public {
+        require(pknStackedBy(msg.sender) >= _amount, "PKNPremium: Amount too high!");
+        require(!isSubscriptionActive(msg.sender), "PKNPremium: PKN not unlocked yet!");
+
+        _pknStakedBy[msg.sender] -= _amount;
+        PKN.transfer(msg.sender, _amount);
+
+        emit Withdraw(msg.sender, _amount);
     }
 
-    // Unlocks the staked PKN and burns xPKN
-    function leave(uint256 _share) public {
-        uint256 totalPKN = PKN.balanceOf(address(this));
-        uint256 totalShares = totalSupply();
-        uint256 what = (_share * totalPKN) / totalShares;
-        _burn(msg.sender, _share);
-        PKN.transfer(msg.sender, what);
+    // renew an existing or expired subscription
+    function renew() public {
+        require(pknStackedBy(msg.sender) > 0, "PKNPremium: No PKN stacked!");
+
+        _unlockTimeOf[msg.sender] = _getUnlockTime(block.timestamp);
+
+        emit Renew(msg.sender, _pknStakedBy[msg.sender]);
+    }
+
+    function _getUnlockTime(uint256 startTime) internal pure returns(uint256) {
+        return startTime + LOCK_PERIOD;
     }
 }
