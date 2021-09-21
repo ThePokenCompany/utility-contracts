@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract PKNAirdropper {
 
-    IERC20 public PKN;
+    IERC20 public immutable PKN;
 
     constructor(IERC20 _PKN) {
         PKN = _PKN;
