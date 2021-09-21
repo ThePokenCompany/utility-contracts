@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // This contract handles pooling PKN to get pPKN - and harvest periodic rewards
 contract PooledPKN is ERC20("PooledPKN", "pPKN") {
-    IERC20 public PKN;
+    IERC20 public immutable PKN;
 
     constructor(IERC20 _PKN) {
         PKN = _PKN;
