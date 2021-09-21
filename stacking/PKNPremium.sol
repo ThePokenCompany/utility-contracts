@@ -11,7 +11,7 @@ contract PKNPremium {
     mapping(address => uint256) _pknStakedBy;
     mapping(address => uint256) _unlockTimeOf;
 
-    IERC20 public PKN;
+    IERC20 public immutable PKN;
 
     event Deposit(address user, uint256 amount);
     event Withdraw(address user, uint256 amount);
