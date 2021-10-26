@@ -21,9 +21,6 @@ contract PKNVesting is Ownable {
 
     mapping (address => Allocation) public PKNAllocations;
 
-    event AllocationAdded(address indexed recipient, uint256 amount);
-    event AllocationReleased(address indexed recipient, uint256 amountClaimed);
-
     constructor(address _PKN, uint256 _startTime, uint256 _numOfMonths) {
         PKN = IERC20(_PKN);
         START_TIME = _startTime;
@@ -48,6 +45,10 @@ contract PKNVesting is Ownable {
 
         monthsVested = elapsedMonths - PKNAllocation.monthsClaimed;
         amountVested = monthsVested * (PKNAllocation.amount / DURATION_MONTHS);
+    }
+
+    function getAllocationDetails(address _recipient) external view returns(Allocation memory) {
+        return PKNAllocations[_recipient];
     }
 
     function addAllocation(address[] calldata _recipients, uint256[] calldata _amounts) external onlyOwner {
@@ -82,7 +83,6 @@ contract PKNVesting is Ownable {
             monthsClaimed: 0
         });
         PKNAllocations[_recipient] = allocation;
-        emit AllocationAdded(_recipient, _amount);
     }
 
     function _releaseVestedTokens(address _recipient) internal {
@@ -94,7 +94,6 @@ contract PKNVesting is Ownable {
         PKNAllocation.amountClaimed = PKNAllocation.amountClaimed + amountVested;
 
         PKN.transfer(_recipient, amountVested);
-        emit AllocationReleased(_recipient, amountVested);
     }
 
     function _receivePKN(address from, uint256 amount) internal returns(uint256) {
