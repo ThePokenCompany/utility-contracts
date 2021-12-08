@@ -14,10 +14,11 @@ contract PooledPKN is ERC20("PooledPKN", "pPKN") {
 
     // Locks PKN and mints pPKN
     function enter(uint256 _amount) public {
-        uint256 _actualAmount = _receivePKN(msg.sender, _amount);
 
         uint256 totalPKN = PKN.balanceOf(address(this));
         uint256 totalShares = totalSupply();
+        uint256 _actualAmount = _receivePKN(msg.sender, _amount);
+
         if (totalShares == 0 || totalPKN == 0) {
             _mint(msg.sender, _actualAmount);
         } 
