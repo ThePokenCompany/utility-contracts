@@ -4,102 +4,114 @@ pragma solidity ^0.8.7;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-// This contract handles locking PKN to get pool rewards
-contract LockedPKNPool is Ownable {
+import "hardhat/console.sol";
 
-    uint256 private constant MIN_DEPOSIT = 98000 * 10**18;
-    uint256 private _userCount;
-    uint256 private _currentStage;
-    uint256 private _totalSupply;
+// This contract handles locking PKN to get great rewards
+contract LockedPool is Ownable {
+
+    uint256 public constant TIER_MIN = 98000 * 10**18;
+    uint256 public constant TIER_MID = TIER_MIN * 10;
+    uint256 public constant TIER_MAX = TIER_MIN * 100;
+    
+    uint256 public constant REWARD_MIN = 15;
+    uint256 public constant REWARD_MID = 25;
+    uint256 public constant REWARD_MAX = 35;
+    uint256 public constant TOTAL_DURATION = 365 days;
+
+    uint256 public stage;
+    uint256 public endTime;
+    uint256 public totalOwed;
+    uint256 public totalDeposit;
+
+    mapping(address => uint256) private userOwed;
+    mapping(address => uint256) private userDeposit;
 
     IERC20 public immutable PKN;
-    
-    mapping(address => uint256) private _balances;
 
     constructor(IERC20 _PKN) {
         PKN = _PKN;
     }
 
-    function userCount() public view returns (uint256) {
-        return _userCount;
+    function splitTiers(uint256 amount) public pure returns(uint256 tA, uint256 tB, uint256 tC) {
+        if(amount > TIER_MAX) {
+            tC = amount - TIER_MAX;
+        }
+        if(amount > TIER_MID) {
+            tB = amount - tC - TIER_MID;
+        }
+        tA = amount - tC - tB;
     }
 
-    function totalSupply() public view returns (uint256) {
-        return _totalSupply;
+    function depositOf(address account) public view returns (uint256) {
+        return userDeposit[account];
     }
 
-    function currentStage() public view returns (uint256) {
-        return _currentStage;
+    function totalRewardOf(address account) public view returns (uint256) {
+        return userOwed[account];
     }
 
-    function balanceOf(address account) public view returns (uint256) {
-        return _balances[account];
+    function pendingRewards() external view returns(uint256 pending) {
+        uint256 currentBalance = PKN.balanceOf(address(this));
+        if(totalOwed > currentBalance) {
+            pending = totalOwed - currentBalance;
+        }
     }
 
-    function pknShareOf(address user) public view returns(uint256) {
-        uint256 totalPKN = PKN.balanceOf(address(this));
-        uint256 totalShares = totalSupply();
-        return (balanceOf(user) * totalPKN) / totalShares;
+    function enableDeposits() external onlyOwner() {
+        require(stage == 0, "Deposit already enabled");
+        stage = 1;
+        endTime = block.timestamp + TOTAL_DURATION;
     }
 
-    function setStage(uint256 newStage) external onlyOwner {
-        /*
-            0 : default state, everything disabled
-            1 : only entry enabled
-            2 : only exit enabled
-        */
-        _currentStage = newStage;
-    }
-
-    // Locks PKN
     function enter(uint256 _amount) external {
-        require(currentStage() == 1, "Entry not enabled");
+        require(stage == 1, "Deposit not enabled");
 
-        uint256 totalPKN = PKN.balanceOf(address(this));
-        uint256 totalShares = totalSupply();
-        uint256 _actualAmount = _receivePKN(msg.sender, _amount);
+        uint256 amount = _receivePKN(msg.sender, _amount);
+        uint256 uDeposit = userDeposit[msg.sender];
+        uint256 uTotal = uDeposit + amount;
 
-        if (totalShares == 0 || totalPKN == 0) {
-            _allocate(msg.sender, _actualAmount);
-        } 
-        else {
-            uint256 what = (_actualAmount * totalShares) / totalPKN;
-            _allocate(msg.sender, what);
+        require(uTotal >= TIER_MIN, "Amount less than minimum deposit");
+
+        (uint256 depA, uint256 depB, uint256 depC) = splitTiers(uDeposit);
+        (uint256 totA, uint256 totB, uint256 totC) = splitTiers(uTotal);
+
+        uint256 amtA = totA - depA;
+        uint256 amtB = totB - depB;
+        uint256 amtC = totC - depC;
+
+        uint256 remainingTime = endTime - block.timestamp;
+        uint256 owed;
+        if(amtA > 0) {
+            owed += amtA + amtA * REWARD_MIN * remainingTime / (100 * TOTAL_DURATION);
         }
 
-        require(pknShareOf(msg.sender) >= MIN_DEPOSIT, "Amount less than minimum deposit");
+        if(amtB > 0) {
+            owed += amtB + amtB * REWARD_MID * remainingTime / (100 * TOTAL_DURATION);
+        }
+
+        if(amtC > 0) {
+            owed += amtC + amtC * REWARD_MAX * remainingTime / (100 * TOTAL_DURATION);
+        }
+
+        userDeposit[msg.sender] += amount;
+        totalDeposit += amount;
+        userOwed[msg.sender] += owed;
+        totalOwed += owed;
     }
 
-    // Unlocks PKN and rewards
-    function leave(uint256 _share) public {
-        require(currentStage() == 2, "Exit not enabled");
+    function leave() external {
+        require(block.timestamp >= endTime, "Locking not completed yet");
 
-        uint256 totalPKN = PKN.balanceOf(address(this));
-        uint256 totalShares = totalSupply();
-        uint256 what = (_share * totalPKN) / totalShares;
-        _deallocate(msg.sender, _share);
-        PKN.transfer(msg.sender, what);
+        uint256 amount = userOwed[msg.sender];
+        require(amount > 0, "No pending withdrawal");
+        userOwed[msg.sender] = 0;
+        totalOwed -= amount;
+        PKN.transfer(msg.sender, amount);
     }
 
     function _receivePKN(address from, uint256 amount) internal returns (uint256) {
         uint256 balanceBefore = PKN.balanceOf(address(this));
         PKN.transferFrom(from, address(this), amount);
         return PKN.balanceOf(address(this)) - balanceBefore;
-    }
-
-    function _allocate(address account, uint256 amount) internal {
-        if(_balances[account] == 0) {
-            _userCount += 1;
-        }
-        _balances[account] += amount;
-        _totalSupply += amount;
-    }
-
-    function _deallocate(address account, uint256 amount) internal {
-        _balances[account] = _balances[account] - amount;
-        _totalSupply -= amount;
-        if(_balances[account] == 0) {
-            _userCount -= 1;
-        }
     }
 }
