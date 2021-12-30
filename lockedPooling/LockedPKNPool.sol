@@ -126,6 +126,12 @@ contract LockedPool is Ownable {
         PKN.transfer(msg.sender, amount);
     }
 
+    // only to be called in an emergency after a wait period of 2 * TOTAL_DURATION
+    function emergencyRescue() external onlyOwner() {
+        require(block.timestamp >= ENTRY_LIMIT + 2 * TOTAL_DURATION, "Not needed yet");
+        PKN.transfer(msg.sender, PKN.balanceOf(address(this)));
+    }
+
     function _receivePKN(address from, uint256 amount) internal returns (uint256) {
         uint256 balanceBefore = PKN.balanceOf(address(this));
         PKN.transferFrom(from, address(this), amount);
