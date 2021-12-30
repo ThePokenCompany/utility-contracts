@@ -16,20 +16,27 @@ contract LockedPool is Ownable {
     uint256 public constant REWARD_MIN = 15;
     uint256 public constant REWARD_MID = 25;
     uint256 public constant REWARD_MAX = 35;
-    uint256 public constant TOTAL_DURATION = 365 days;
 
-    uint256 public stage;
-    uint256 public endTime;
+    uint256 public constant TOTAL_DURATION = 365 days;
+    uint256 public constant ENTRY_LIMIT = 1671624000; // Wednesday, December 21, 2022 12:00:00 PM GMT
+
     uint256 public totalOwed;
     uint256 public totalDeposit;
 
+    mapping(address => bool) private isWL;
     mapping(address => uint256) private userOwed;
     mapping(address => uint256) private userDeposit;
+    mapping(address => uint256) private userFirstTS;
 
     IERC20 public immutable PKN;
 
     constructor(IERC20 _PKN) {
         PKN = _PKN;
+    }
+
+    modifier onlyWL() {
+        require(isWL[msg.sender], "Not permitted for this account");
+        _;
     }
 
     function splitTiers(uint256 amount) public pure returns(uint256 tA, uint256 tB, uint256 tC) {
@@ -50,6 +57,11 @@ contract LockedPool is Ownable {
         return userOwed[account];
     }
 
+    function unlockTimeOf(address account) public view returns (uint256) {
+        require(userFirstTS[account] != 0, "No deposit yet");
+        return userFirstTS[account] + TOTAL_DURATION;
+    }
+
     function pendingRewards() external view returns(uint256 pending) {
         uint256 currentBalance = PKN.balanceOf(address(this));
         if(totalOwed > currentBalance) {
@@ -57,14 +69,14 @@ contract LockedPool is Ownable {
         }
     }
 
-    function enableDeposits() external onlyOwner() {
-        require(stage == 0, "Deposit already enabled");
-        stage = 1;
-        endTime = block.timestamp + TOTAL_DURATION;
+    function addWL(address[] memory _wallets) external onlyOwner() {
+        for(uint256 i = 0; i < _wallets.length; i++) {
+            isWL[_wallets[i]] = true;
+        }
     }
 
-    function enter(uint256 _amount) external {
-        require(stage == 1, "Deposit not enabled");
+    function enter(uint256 _amount) external onlyWL() {
+        require(block.timestamp < ENTRY_LIMIT, "Locking period ended");
 
         uint256 amount = _receivePKN(msg.sender, _amount);
         uint256 uDeposit = userDeposit[msg.sender];
@@ -79,7 +91,12 @@ contract LockedPool is Ownable {
         uint256 amtB = totB - depB;
         uint256 amtC = totC - depC;
 
-        uint256 remainingTime = endTime - block.timestamp;
+        if(uDeposit == 0) {
+            // first deposit for this user
+            userFirstTS[msg.sender] = block.timestamp;
+        }
+
+        uint256 remainingTime = unlockTimeOf(msg.sender) - block.timestamp;
         uint256 owed;
         if(amtA > 0) {
             owed += amtA + amtA * REWARD_MIN * remainingTime / (100 * TOTAL_DURATION);
@@ -100,7 +117,7 @@ contract LockedPool is Ownable {
     }
 
     function leave() external {
-        require(block.timestamp >= endTime, "Locking not completed yet");
+        require(block.timestamp >= unlockTimeOf(msg.sender), "Not unlocked yet");
 
         uint256 amount = userOwed[msg.sender];
         require(amount > 0, "No pending withdrawal");
