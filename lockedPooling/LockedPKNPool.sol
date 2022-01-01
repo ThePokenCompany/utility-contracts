@@ -4,8 +4,6 @@ pragma solidity ^0.8.7;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import "hardhat/console.sol";
-
 // This contract handles locking PKN to get great rewards
 contract LockedPool is Ownable {
 
