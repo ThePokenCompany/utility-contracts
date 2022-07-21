@@ -7,12 +7,29 @@ import "@openzeppelin/contracts/utils/Create2.sol";
 
 contract Wallet is Initializable {
 
+    bytes4 internal constant _INTERFACE_ID_ERC1271 = 0x1626ba7e;
+    bytes4 internal constant _ERC1271FAILVALUE = 0xffffffff;
+
     address public owner;
+
+    mapping(bytes => uint256) internal _signatureExpiry;
 
     event Invoked(address indexed module, address indexed target, uint256 indexed value, bytes data);
 
     function initialize(address _owner) initializer() external {
         owner = _owner;
+    }
+
+    function isValidSignature(bytes32, bytes memory signature) external view returns (bytes4) {
+        if(block.timestamp <= _signatureExpiry[signature]) {
+            return _INTERFACE_ID_ERC1271;
+        }
+        return _ERC1271FAILVALUE;
+    }
+
+    function addSignature(bytes memory signature, uint256 deadline) external {
+        require(msg.sender == address(this), "NOT_AUTHORIZED");
+        _signatureExpiry[signature] = deadline;
     }
 
     function updateOwner(address _newOwner) external {
