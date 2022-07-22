@@ -59,14 +59,17 @@ contract Wallet is Initializable {
 contract WalletFactory is AccessControl {
 
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    address public feeRecipient;
 
     event WalletCreated(address wallet);
 
-    constructor() {
+    constructor(address _feeRecipient) {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(OPERATOR_ROLE, msg.sender);
+
+        feeRecipient = _feeRecipient;
     }
-    
+
     function computeAddress(bytes32 salt) public view returns (address) {
         return Create2.computeAddress(salt, keccak256(type(Wallet).creationCode));
     }
@@ -76,12 +79,10 @@ contract WalletFactory is AccessControl {
         return wallet.code.length > 0;
     }
 
-    function deployWallet(bytes32 salt) external onlyRole(OPERATOR_ROLE) {
-        address payable walletAddress = payable(Create2.deploy(0, salt, type(Wallet).creationCode));
-        Wallet(walletAddress).initialize(address(this));
-        emit WalletCreated(walletAddress);
+    function updateFeeRecipient(address _feeRecipient) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        feeRecipient = _feeRecipient;
     }
-    
+
     /**
      * @notice Performs a generic transaction.
      * @param salt The salt for the wallet
@@ -89,22 +90,44 @@ contract WalletFactory is AccessControl {
      * @param value The value of the transaction.
      * @param data The data of the transaction.
      */
-    function invoke(bytes32 salt, address target, uint256 value, bytes calldata data) external  onlyRole(OPERATOR_ROLE) {
+    function invoke(bytes32 salt, address target, uint256 value, bytes calldata data) external onlyRole(OPERATOR_ROLE) {
+        uint256 startGas = gasleft();
         address walletAddress = computeAddress(salt);
-        Wallet(payable(walletAddress)).invoke( target, value, data); 
+        Wallet(payable(walletAddress)).invoke(target, value, data);
+        Wallet(payable(walletAddress)).invoke(feeRecipient, (21000 + startGas - gasleft()) * tx.gasprice, "");
     }
 
-    function invokeBatch(bytes32 salt, address[] calldata targets, uint256[] calldata values, bytes[] calldata allData) external  onlyRole(OPERATOR_ROLE) {
-        address payable walletAddress = payable(computeAddress(salt));
+    function invokeWithoutGas(bytes32 salt, address target, uint256 value, bytes calldata data) external onlyRole(OPERATOR_ROLE) {
+        Wallet(payable(computeAddress(salt))).invoke(target, value, data);
+    }
+
+    function invokeBatch(bytes32 salt, address[] calldata targets, uint256[] calldata values, bytes[] calldata allData) external onlyRole(OPERATOR_ROLE) {
+        uint256 startGas = gasleft();
 
         uint256 len1 = targets.length;
-        uint256 len2 = values.length;
-        uint256 len3 = allData.length;
+        require(len1 == values.length && len1 == allData.length, "INPUT_LENGTH_MISMATCH");
 
-        require(len1 == len2 && len2 == len3, "INPUT_LENGTH_MISMATCH");
-
+        address payable walletAddress = payable(computeAddress(salt));
         for(uint256 i = 0; i < len1; i++) {
             Wallet(walletAddress).invoke(targets[i], values[i], allData[i]);
         }
+
+        Wallet(payable(walletAddress)).invoke(feeRecipient, (21000 + startGas - gasleft()) * tx.gasprice, "");
+    }
+
+    function invokeBatchWithoutGas(bytes32 salt, address[] calldata targets, uint256[] calldata values, bytes[] calldata allData) external onlyRole(OPERATOR_ROLE) {
+        uint256 len1 = targets.length;
+        require(len1 == values.length && len1 == allData.length, "INPUT_LENGTH_MISMATCH");
+
+        address payable walletAddress = payable(computeAddress(salt));
+        for(uint256 i = 0; i < len1; i++) {
+            Wallet(walletAddress).invoke(targets[i], values[i], allData[i]);
+        }
+    }
+
+    function deployWallet(bytes32 salt) external {
+        address payable walletAddress = payable(Create2.deploy(0, salt, type(Wallet).creationCode));
+        Wallet(walletAddress).initialize(address(this));
+        emit WalletCreated(walletAddress);
     }
 }
